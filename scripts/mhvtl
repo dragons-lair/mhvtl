@@ -1,0 +1,72 @@
+#!/sbin/openrc-run
+
+INSTANCE=${SVCNAME#*.}
+EXEC=/usr/sbin/edge
+PIDFILE=/var/run/mhvtl_lib.${INSTANCE}.pid
+CONF=/etc/mhvtl/device.conf
+
+depend() {
+#  (Dependency information)
+  need localmount
+  after bootmisc
+}
+
+start_pre() {
+  /sbin/modprobe sg
+  /sbin/modprobe mhvtl
+  /sbin/modprobe st
+}
+
+start() {
+#  (Commands necessary to start the service)
+  if [ "$INSTANCE" == "mhvtl" ]; then
+    eerror "Please use link /etc/init.d/mhvtl.INSTANCE instead of /etc/init.d/mhvtl"
+    return 1
+  fi
+  if [ ! -f "$CONF" ]; then
+    eerror "Config file $CONF not found"
+    return 2
+  fi
+
+  ebegin "Starting mhvtl instance $INSTANCE"
+  start-stop-daemon --start --exec /usr/bin/vtllibrary \
+    --pidfile $PIDFILE -m -b \
+    -- -q $INSTANCE -F || return 3
+  eend $?
+
+  DEVS=$(cat $CONF | grep -B1 "Library ID: $INSTANCE" | grep -o "Drive: [0-9]\+" | grep -o "[0-9]\+")
+  for d in $DEVS
+  do
+    #start drives
+    ebegin "Starting tape drive $d"
+    /usr/bin/vtltape -q $d
+    eend $?
+  done
+  eend $?
+  return 0;
+}
+
+stop() {
+#  (Commands necessary to stop the service)
+  if [ "$INSTANCE" == "mhvtl" ]; then
+    eerror "Please use link /etc/init.d/mhvtl.INSTANCE instead of /etc/init.d/mhvtl"
+    return 1
+  fi
+
+  DEVS=$(cat $CONF | grep -B1 "Library ID: $INSTANCE" | grep -o "Drive: [0-9]\+" | grep -o "[0-9]\+")
+  for d in $DEVS
+  do
+    #start drives
+    ebegin "Starting tape drive $d"
+    /usr/bin/vtlcmd $d exit
+    eend $?
+  done
+
+  ebegin "Stopping mhvtl instance $INSTANCE"
+  /usr/bin/vtlcmd $INSTANCE exit
+  eend $?
+}
+
+reload () {
+  /bin/kill -s SIGHUP $(cat $PIDFILE)
+}
